@@ -1,0 +1,35 @@
+{
+    "title": "Integração Pluxee",
+    "config": {
+        "step": {
+            "user": {
+                "title": "Adicionar Credenciais",
+                "description": "Introduza as suas credenciais da conta Pluxee.",
+                "data": {
+                    "nif": "NIF",
+                    "password": "Palavra-passe"
+                },
+                "data_description": {
+                    "nif": "O seu número de identificação fiscal (9 dígitos)",
+                    "password": "A sua palavra-passe do portal Pluxee"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-autenticar Pluxee",
+                "description": "A sua sessão Pluxee expirou. Por favor, volte a introduzir a palavra-passe para o NIF {nif}.",
+                "data": {
+                    "password": "Palavra-passe"
+                }
+            }
+        },
+        "error": {
+            "invalid_auth": "Credenciais inválidas. Por favor, verifique o seu NIF e palavra-passe.",
+            "cannot_connect": "Não foi possível conectar ao portal Pluxee. Por favor, tente mais tarde."
+        },
+        "abort": {
+            "single_instance_allowed": "Apenas uma configuração Pluxee é permitida.",
+            "already_configured": "Pluxee já está configurado.",
+            "reauth_successful": "Re-autenticação foi bem-sucedida."
+        }
+    }
+}

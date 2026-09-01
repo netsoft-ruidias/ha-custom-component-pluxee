@@ -1,0 +1,14 @@
+{
+    "domain": "pluxee",
+    "name": "Pluxee Benefits Integration",
+    "codeowners": [
+        "@netsoft-ruidias"
+    ],
+    "config_flow": true,
+    "dependencies": ["http"],
+    "documentation": "https://github.com/netsoft-ruidias/ha-custom-component-pluxee/blob/main/README.md",
+    "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/netsoft-ruidias/ha-custom-component-pluxee/issues",
+    "requirements": [],
+    "version": "1.0.0"
+}

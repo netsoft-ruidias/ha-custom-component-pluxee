@@ -1,0 +1,11 @@
+refresh:
+  name: Refresh
+  description: Forces an immediate data refresh for one or all Pluxee entries.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      description: Refresh only this specific Pluxee entry (leave empty to refresh all).
+      example: "01234567890abcdef01234567890abcd"
+      required: false
+      selector:
+        text:

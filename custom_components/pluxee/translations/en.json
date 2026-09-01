@@ -1,0 +1,35 @@
+{
+    "title": "Pluxee Benefits integration",
+    "config": {
+        "step": {
+            "user": {
+                "title": "Add Credentials",
+                "description": "Enter your Pluxee account credentials.",
+                "data": {
+                    "nif": "NIF (Tax ID)",
+                    "password": "Password"
+                },
+                "data_description": {
+                    "nif": "Your Portuguese tax identification number (9 digits)",
+                    "password": "Your Pluxee portal password"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate Pluxee",
+                "description": "Your Pluxee session has expired. Please re-enter the password for NIF {nif}.",
+                "data": {
+                    "password": "Password"
+                }
+            }
+        },
+        "error": {
+            "invalid_auth": "Invalid credentials. Please check your NIF and password.",
+            "cannot_connect": "Cannot connect to the Pluxee portal. Please try again later."
+        },
+        "abort": {
+            "single_instance_allowed": "Only a single Pluxee configuration is allowed.",
+            "already_configured": "Pluxee is already configured.",
+            "reauth_successful": "Re-authentication was successful."
+        }
+    }
+}

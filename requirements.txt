@@ -1,0 +1,7 @@
+aiohttp
+python-dotenv
+async-timeout
+homeassistant
+voluptuous
+beautifulsoup4
+lxml
