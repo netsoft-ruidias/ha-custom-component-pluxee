@@ -43,7 +43,10 @@ NEXT_STEPS.md
 
 # Home Assistant
 home-assistant.log
-config
-# Coverflex device trust token (local, sensitive)
-.coverflex_device_token
-.coverflex_refresh_token
+config/
+config/*.db
+config/*.db-*
+config/.storage/
+
+# Pluxee session data (local, sensitive)
+.pluxee_session
