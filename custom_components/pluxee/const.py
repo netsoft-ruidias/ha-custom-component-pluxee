@@ -18,6 +18,7 @@ CONF_NIF = "nif"
 
 CONF_USER_AGENT_TOKEN = "user_agent_token"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 
 UPDATE_INTERVAL = timedelta(minutes=30)
 

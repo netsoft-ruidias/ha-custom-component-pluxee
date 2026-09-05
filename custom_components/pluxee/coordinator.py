@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timezone
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD
@@ -17,6 +18,8 @@ from .const import (
     DOMAIN,
     UPDATE_INTERVAL,
     CONF_NIF,
+    CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
     DEFAULT_TRANSACTIONS_COUNT,
 )
 
@@ -36,9 +39,10 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
     """Coordinator that manages all Pluxee API calls.
 
     Pluxee authentication strategy:
-    - Login with NIF + password on each session
-    - Session maintained via cookies (handled by aiohttp)
-    - On auth failure → trigger reauth flow
+    - Persist the portal auth context token (JWT from cookie)
+    - Refresh authentication silently before token expiry
+    - Retry once with forced login on session expiration
+    - Only request reauth when credentials are no longer valid
     """
 
     def __init__(
@@ -56,6 +60,7 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
         self._entry = entry
         self._api = api
         self._authenticated = False
+        self._refresh_buffer_seconds = 300
         # Cache: last known balance to detect changes
         self._last_balance: float | None = None
         # Cache: last fetched transactions
@@ -65,11 +70,29 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _async_ensure_authenticated(self) -> None:
+    async def _async_save_auth_context(self) -> None:
+        """Persist latest auth context in config_entry.data."""
+        expires_at = self._api.token_expires_at
+        new_data = {
+            **self._entry.data,
+            CONF_REFRESH_TOKEN: self._api.refresh_token or "",
+            CONF_TOKEN_EXPIRES_AT: (
+                expires_at.astimezone(timezone.utc).isoformat()
+                if expires_at is not None
+                else ""
+            ),
+        }
+        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+
+    async def _async_ensure_authenticated(self, force: bool = False) -> None:
         """Ensure we have a valid authenticated session."""
-        if self._authenticated:
+        if (
+            not force
+            and self._authenticated
+            and not self._api.is_token_expiring_soon(self._refresh_buffer_seconds)
+        ):
             return
-            
+
         data = self._entry.data
         nif: str = data[CONF_NIF]
         password: str = data[CONF_PASSWORD]
@@ -79,10 +102,14 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
             if not success:
                 _LOGGER.warning("Authentication failed for NIF %s", nif)
                 raise ConfigEntryAuthFailed("Pluxee authentication failed")
-            
+
             self._authenticated = True
-            _LOGGER.debug("Successfully authenticated with Pluxee")
-            
+            await self._async_save_auth_context()
+            _LOGGER.debug(
+                "Successfully authenticated with Pluxee (token expiring soon=%s)",
+                self._api.is_token_expiring_soon(self._refresh_buffer_seconds),
+            )
+
         except AuthenticationError as err:
             _LOGGER.warning("Authentication failed: %s", err)
             raise ConfigEntryAuthFailed(f"Pluxee authentication failed: {err}") from err
@@ -97,9 +124,18 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
             # Ensure we're authenticated
             await self._async_ensure_authenticated()
 
-            # Fetch card and balance data
-            card = await self._api.get_card()
-            balances = await self._api.get_balances()
+            try:
+                # Fetch card and balance data
+                card = await self._api.get_card()
+                balances = await self._api.get_balances()
+            except AuthenticationError:
+                # Session can expire unexpectedly between polls.
+                # Retry once with a forced login before requesting reauth.
+                _LOGGER.debug("Session expired while fetching data, forcing re-login")
+                self._authenticated = False
+                await self._async_ensure_authenticated(force=True)
+                card = await self._api.get_card()
+                balances = await self._api.get_balances()
 
             if card is None or balances is None:
                 raise UpdateFailed("Pluxee API returned incomplete data.")
@@ -128,17 +164,13 @@ class PluxeeCoordinator(DataUpdateCoordinator[PluxeeData]):
             )
 
         except ConfigEntryAuthFailed:
-            # Session expired, clear auth flag and let HA handle reauth
+            # Credentials or full auth flow failed, let HA handle reauth
             self._authenticated = False
             raise
         except AuthenticationError as err:
             self._authenticated = False
             raise ConfigEntryAuthFailed(f"Pluxee authentication error: {err}") from err
         except PluxeeAPIError as err:
-            # Check if it's a session expiration error
-            if "session expired" in str(err).lower():
-                self._authenticated = False
-                raise ConfigEntryAuthFailed("Pluxee session expired") from err
             raise UpdateFailed(f"Pluxee API error: {err}") from err
         except Exception as err:
             raise UpdateFailed(f"Unexpected error communicating with Pluxee: {err}") from err

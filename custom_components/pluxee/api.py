@@ -1,10 +1,13 @@
 """Pluxee API Client with HTML scraping."""
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 import re
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiohttp
 from aiohttp import ClientSession
@@ -29,6 +32,59 @@ class PluxeeAPI:
             "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
         }
         self._authenticated = False
+        self._refresh_token: str | None = None
+        self._token_expires_at: datetime | None = None
+
+    @property
+    def refresh_token(self) -> str | None:
+        """Return the current auth context token from cookies."""
+        return self._refresh_token
+
+    @property
+    def token_expires_at(self) -> datetime | None:
+        """Return the UTC expiration timestamp for the current auth token."""
+        return self._token_expires_at
+
+    def is_token_expiring_soon(self, buffer_seconds: int = 300) -> bool:
+        """Return True when auth token is missing or close to expiry."""
+        if not self._refresh_token or not self._token_expires_at:
+            return True
+        now_utc = datetime.now(timezone.utc)
+        remaining = (self._token_expires_at - now_utc).total_seconds()
+        return remaining <= buffer_seconds
+
+    def _extract_auth_cookie_token(self) -> str | None:
+        """Extract AUTH_BEARER_CONTEXT token from current cookie jar."""
+        for cookie in self._session.cookie_jar:
+            if cookie.key == "AUTH_BEARER_CONTEXT":
+                return cookie.value
+        return None
+
+    @staticmethod
+    def _decode_jwt_exp(token: str) -> datetime | None:
+        """Decode JWT payload and return exp as UTC datetime if available."""
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+
+        payload_segment = parts[1]
+        payload_segment += "=" * (-len(payload_segment) % 4)
+        try:
+            payload_bytes = base64.urlsafe_b64decode(payload_segment.encode("ascii"))
+            payload = json.loads(payload_bytes.decode("utf-8"))
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return None
+
+        exp = payload.get("exp")
+        if not isinstance(exp, (int, float)):
+            return None
+        return datetime.fromtimestamp(exp, timezone.utc)
+
+    def _update_auth_context_from_cookies(self) -> None:
+        """Refresh in-memory auth context based on current cookies."""
+        token = self._extract_auth_cookie_token()
+        self._refresh_token = token
+        self._token_expires_at = self._decode_jwt_exp(token) if token else None
 
     async def login(self, nif: str, password: str) -> bool:
         """
@@ -97,8 +153,7 @@ class PluxeeAPI:
                     # Remove UTF-8 BOM if present
                     if text.startswith('\ufeff'):
                         text = text[1:]
-                    
-                    import json
+
                     result = json.loads(text)
                 except Exception as err:
                     # If not JSON, log error
@@ -131,6 +186,7 @@ class PluxeeAPI:
                 if API_CONSUMER_URL in final_url or "consumidores.pluxee.pt" in final_url:
                     _LOGGER.debug("Login successful - redirected to %s", final_url)
                     self._authenticated = True
+                    self._update_auth_context_from_cookies()
                     return True
                 
                 # Check if we're still on the login page (authentication failed)
@@ -167,7 +223,7 @@ class PluxeeAPI:
             PluxeeAPIError: If not authenticated or scraping fails
         """
         if not self._authenticated:
-            raise PluxeeAPIError("Not authenticated - call login() first")
+            raise AuthenticationError("Not authenticated - call login() first")
         
         _LOGGER.debug("Fetching card data from %s", API_CONSUMER_URL)
         
@@ -180,7 +236,9 @@ class PluxeeAPI:
                 # Check if we were redirected back to login (session expired)
                 if "portal.admin.pluxee.pt" in str(resp.url):
                     self._authenticated = False
-                    raise PluxeeAPIError("Session expired - need to re-authenticate")
+                    self._refresh_token = None
+                    self._token_expires_at = None
+                    raise AuthenticationError("Session expired - need to re-authenticate")
                 
                 if resp.status != 200:
                     raise PluxeeAPIError(f"Failed to fetch data: {resp.status}")
