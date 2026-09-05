@@ -10,7 +10,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import PluxeeAPI
 from .exceptions import AuthenticationError
-from .const import DOMAIN, CONF_NIF
+from .const import DOMAIN, CONF_NIF, CONF_REFRESH_TOKEN, CONF_TOKEN_EXPIRES_AT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +59,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Try to login
                 success = await api.login(nif, password)
                 if success:
-                    return self._async_create_entry(nif=nif, password=password)
+                    return self._async_create_entry(
+                        nif=nif,
+                        password=password,
+                        refresh_token=api.refresh_token,
+                        token_expires_at=(
+                            api.token_expires_at.isoformat()
+                            if api.token_expires_at is not None
+                            else ""
+                        ),
+                    )
                 else:
                     errors["base"] = "invalid_auth"
 
@@ -105,6 +114,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         data={
                             **reauth_entry.data,
                             CONF_PASSWORD: password,
+                            CONF_REFRESH_TOKEN: api.refresh_token or "",
+                            CONF_TOKEN_EXPIRES_AT: (
+                                api.token_expires_at.isoformat()
+                                if api.token_expires_at is not None
+                                else ""
+                            ),
                         },
                     )
                     await self.hass.config_entries.async_reload(reauth_entry.entry_id)
@@ -130,12 +145,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ------------------------------------------------------------------
 
     def _async_create_entry(
-        self, nif: str, password: str
+        self,
+        nif: str,
+        password: str,
+        refresh_token: str | None,
+        token_expires_at: str,
     ) -> config_entries.FlowResult:
         """Build the config entry data dict and create the entry."""
         data = {
             CONF_NIF: nif,
             CONF_PASSWORD: password,
+            CONF_REFRESH_TOKEN: refresh_token or "",
+            CONF_TOKEN_EXPIRES_AT: token_expires_at,
         }
         return self.async_create_entry(
             title=f"Pluxee ({nif})",
